@@ -1,0 +1,18 @@
+rules:
+  - id: "CUST-001"
+    title: "Hardcoded database connection string"
+    severity: "CRITICAL"
+    pattern: "(postgresql|mysql|mongodb)://[^:]+:[^@]+@"
+    message: "Database connection string with embedded credentials detected."
+
+  - id: "CUST-002"
+    title: "Debug mode enabled"
+    severity: "MEDIUM"
+    pattern: 'debug\s*=\s*True'
+    message: "Debug mode is enabled in production code."
+
+  - id: "CUST-003"
+    title: "Insecure HTTP URL"
+    severity: "LOW"
+    pattern: "http://[^/]+"
+    message: "Non-HTTPS URL detected. Consider using HTTPS."
