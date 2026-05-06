@@ -67,7 +67,13 @@ class Scanner:
 
     def __init__(self, rules: list[Rule], exclude_patterns: list[str] | None = None):
         self.rules = rules
-        self.exclude_patterns = exclude_patterns or ["*/.git/*", "*/__pycache__/*", "*/venv/*"]
+        self.exclude_patterns = (
+            exclude_patterns
+            if exclude_patterns is not None
+            else [
+                "*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"
+            ]
+        )
 
     def scan_target(self, target: str | Path) -> ScanResult:
         """Scan a single file or directory.
@@ -100,7 +106,11 @@ class Scanner:
 
     def _is_excluded(self, path: Path) -> bool:
         str_path = str(path.as_posix())
-        return any(fnmatch.fnmatch(str_path, pat) for pat in self.exclude_patterns)
+        filename = path.name
+        for pat in self.exclude_patterns:
+            if fnmatch.fnmatch(str_path, pat) or fnmatch.fnmatch(filename, pat):
+                return True
+        return False
 
     def _scan_file(self, path: Path) -> list[Finding]:
         """Scan a single Python file."""

@@ -38,12 +38,26 @@ class UnvalidatedUrlFetchRule(Rule):
                     )
 
     def _is_unvalidated_fetch(self, call: ast.Call) -> bool:
-        if isinstance(call.func, ast.Attribute):
-            if call.func.attr in self._FETCH_ATTRS:
-                if call.args:
-                    first_arg = call.args[0]
-                    if isinstance(first_arg, ast.Name):
-                        return True
-                    if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                        return True
+        if not isinstance(call.func, ast.Attribute):
+            return False
+        if call.func.attr not in self._FETCH_ATTRS:
+            return False
+        if not call.args:
+            return False
+
+        # Only flag calls on known HTTP client modules/objects
+        # Walk up the attribute chain to find the base name
+        base = call.func.value
+        while isinstance(base, ast.Attribute):
+            base = base.value
+
+        if isinstance(base, ast.Name):
+            # Heuristic: common HTTP client variable names + modules
+            http_names = {"requests", "httpx", "urllib", "aiohttp", "client", "session", "http"}
+            if base.id in http_names:
+                first_arg = call.args[0]
+                if isinstance(first_arg, ast.Name):
+                    return True
+                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    return True
         return False

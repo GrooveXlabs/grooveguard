@@ -79,9 +79,9 @@ class TestDangerous:
 class TestValidation:
     def test_missing_validation(self) -> None:
         source = "\n".join([
-            "def fetch_url(url):",
-            "    import requests",
-            "    requests.get(url)",
+            "def run_command(cmd):",
+            "    import subprocess",
+            "    subprocess.run(cmd)",
         ])
         findings = _run_rule(MissingValidationRule(), source)
         assert len(findings) == 1
@@ -89,16 +89,15 @@ class TestValidation:
 
     def test_validation_present(self) -> None:
         source = "\n".join([
-            "def fetch_url(url):",
-            "    if not isinstance(url, str):",
+            "def run_command(cmd):",
+            "    if not isinstance(cmd, str):",
             "        raise ValueError",
-            "    import requests",
-            "    requests.get(url)",
+            "    import subprocess",
+            "    subprocess.run(cmd)",
         ])
         findings = _run_rule(MissingValidationRule(), source)
-        # After validation, it should still flag because our heuristic is simple
-        # but let's verify it runs without error
-        assert isinstance(findings, list)
+        # After isinstance validation, param is considered validated
+        assert len(findings) == 0
 
 
 class TestSSRF:

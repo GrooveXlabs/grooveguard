@@ -20,7 +20,9 @@ class MissingValidationRule(Rule):
     title = "Missing Input Validation"
     severity = "HIGH"
 
-    _DANGEROUS_ATTRS = {"open", "read", "write", "get", "post", "put", "delete", "run", "call", "Popen"}
+    # Dangerous operations that should not receive raw user input.
+    # Note: "get"/"post" HTTP methods are handled by SSRF-001.
+    _DANGEROUS_ATTRS = {"open", "write", "run", "call", "Popen", "system", "eval", "exec"}
 
     def check(self, tree: ast.AST, source_lines: list[str], path: Path) -> Iterator[Finding]:
         for node in ast.walk(tree):

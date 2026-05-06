@@ -44,7 +44,7 @@ class TestScanner:
     def test_scan_directory(self, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("trigger\n")
         (tmp_path / "b.py").write_text("safe\n")
-        scanner = Scanner(rules=[DummyRule()])
+        scanner = Scanner(rules=[DummyRule()], exclude_patterns=[])
         result = scanner.scan_target(tmp_path)
         assert result.files_scanned == 2
         assert len(result.findings) == 1

@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from grooveguard.scanner import Finding, ScanResult
+from grooveguard.reporters.executive_reporter import ExecutiveReporter
 from grooveguard.reporters.json_reporter import JSONReporter
 from grooveguard.reporters.markdown_reporter import MarkdownReporter
+from grooveguard.reporters.remediation_reporter import RemediationReporter
 from grooveguard.reporters.sarif_reporter import SARIFReporter
 
 
@@ -81,3 +83,59 @@ class TestSARIFReporter:
         assert SARIFReporter._severity_to_level("MEDIUM") == "warning"
         assert SARIFReporter._severity_to_level("LOW") == "note"
         assert SARIFReporter._severity_to_level("INFO") == "note"
+
+
+class TestExecutiveReporter:
+    def test_generate(self, sample_result: ScanResult) -> None:
+        output = ExecutiveReporter.generate(sample_result)
+        assert "Executive Security Summary" in output
+        assert "Risk Score:" in output
+        assert "ELEVATED RISK" in output
+        assert "SEC" in output
+        assert "DNG" in output
+        assert "Strategic Recommendations" in output
+
+    def test_risk_score_calculation(self) -> None:
+        result = ScanResult(findings=[], files_scanned=0, duration_ms=0.0)
+        assert ExecutiveReporter._calculate_risk_score(result.findings) == 0
+        assert ExecutiveReporter._risk_label(0) == "LOW RISK"
+
+        findings = [
+            Finding("SEC-001", "T", "CRITICAL", "M", Path("x"), 1, 0),
+            Finding("SEC-002", "T", "HIGH", "M", Path("x"), 2, 0),
+        ]
+        score = ExecutiveReporter._calculate_risk_score(findings)
+        assert score == 35
+        assert ExecutiveReporter._risk_label(score) == "ELEVATED RISK"
+
+    def test_empty_findings(self) -> None:
+        result = ScanResult(files_scanned=0, duration_ms=0.0)
+        output = ExecutiveReporter.generate(result)
+        assert "No findings detected" in output
+        assert "No action items at this time" in output
+
+
+class TestRemediationReporter:
+    def test_generate(self, sample_result: ScanResult) -> None:
+        output = RemediationReporter.generate(sample_result)
+        assert "Remediation Guide" in output
+        assert "SEC-001" in output
+        assert "DNG-001" in output
+        assert "Estimated Effort" in output
+        assert "Before" in output
+        assert "After" in output
+
+    def test_empty_findings(self) -> None:
+        result = ScanResult(files_scanned=0, duration_ms=0.0)
+        output = RemediationReporter.generate(result)
+        assert "No findings require remediation" in output
+
+    def test_prioritization(self) -> None:
+        findings = [
+            Finding("DNG-001", "T", "MEDIUM", "M", Path("x"), 1, 0),
+            Finding("SEC-001", "T", "CRITICAL", "M", Path("x"), 2, 0),
+        ]
+        result = ScanResult(findings=findings, files_scanned=1, duration_ms=1.0)
+        output = RemediationReporter.generate(result)
+        # CRITICAL should appear before MEDIUM
+        assert output.index("SEC-001") < output.index("DNG-001")
