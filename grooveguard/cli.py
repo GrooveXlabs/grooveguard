@@ -1,4 +1,4 @@
-"""Click CLI for GrooveGuard."""
+"""Click CLI for GrooveGuard Enterprise."""
 
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from grooveguard.config import Config, find_config
 from grooveguard.manifest import ManifestScanner
-from grooveguard.reporters import get_reporter
+from grooveguard.reporters import get_reporter, list_formats
 from grooveguard.rules import build_rules
 from grooveguard.scanner import Finding, ScanResult, Scanner
 from grooveguard.utils import InvalidTargetError, normalize_path
@@ -25,9 +26,10 @@ console = Console()
 SEVERITY_ORDER = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
 POLICY_RULES = {
-    "owasp-llm": ["SEC", "DNG", "VAL", "SSRF"],
-    "nist-ai": ["SEC", "DNG", "VAL"],
+    "owasp-llm": ["SEC", "DNG", "VAL", "SSRF", "INJ", "CRY", "NET", "XML", "LOG"],
+    "nist-ai": ["SEC", "DNG", "VAL", "INJ", "CRY"],
     "mcp-minimal": ["SEC", "DNG"],
+    "owasp-top10": ["SEC", "DNG", "INJ", "CRY", "SSRF", "NET", "XML", "LOG", "VAL"],
 }
 
 
@@ -35,31 +37,51 @@ def _severity_index(severity: str) -> int:
     return SEVERITY_ORDER.index(severity)
 
 
+def _load_config(rules_path: Path | None, target: str) -> Config:
+    """Load configuration from file or defaults."""
+    config_path = find_config(Path(target))
+    if config_path:
+        return Config.from_file(config_path)
+    return Config()
+
+
 def _run_scan(
     target: str,
     rules_path: Path | None,
     exclude: tuple[str, ...],
     policy: str | None = None,
+    config: Config | None = None,
 ) -> ScanResult:
     """Execute a scan and return the result."""
-    rules = build_rules(rules_path)
+    cfg = config or Config()
+    rules = build_rules(rules_path, config=cfg)
 
     if policy and policy in POLICY_RULES:
         allowed_prefixes = POLICY_RULES[policy]
         rules = [r for r in rules if any(r.rule_id.startswith(p + "-") for p in allowed_prefixes)]
 
-    scanner = Scanner(rules=rules, exclude_patterns=list(exclude))
+    # Merge CLI excludes with config excludes
+    all_excludes = list(cfg.exclude)
+    if exclude:
+        all_excludes.extend(exclude)
+
+    scanner = Scanner(
+        rules=rules,
+        exclude_patterns=all_excludes,
+        workers=cfg.workers,
+        use_git_blame=cfg.use_git_blame,
+        max_file_size_kb=cfg.max_file_size_kb,
+    )
     return scanner.scan_target(target)
 
 
 def _print_summary(result: ScanResult, title: str = "Scan Summary") -> None:
     """Print a rich summary panel."""
-    severity_counts: dict[str, int] = {}
-    for f in result.findings:
-        severity_counts[f.severity] = severity_counts.get(f.severity, 0) + 1
+    severity_counts = result.severity_counts
 
     summary_lines = [
         f"Files scanned: {result.files_scanned}",
+        f"Files skipped: {result.files_skipped}",
         f"Total findings: {len(result.findings)}",
         f"Duration: {result.duration_ms:.2f} ms",
     ]
@@ -73,9 +95,9 @@ def _print_summary(result: ScanResult, title: str = "Scan Summary") -> None:
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="grooveguard")
+@click.version_option(version="1.0.0", prog_name="grooveguard")
 def main() -> None:
-    """GrooveGuard — MCP Server Security Scanner."""
+    """GrooveGuard Enterprise — Python Security Scanner."""
 
 
 @main.command()
@@ -83,7 +105,7 @@ def main() -> None:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "markdown", "sarif", "executive", "remediation"], case_sensitive=False),
+    type=click.Choice(list_formats(), case_sensitive=False),
     default="markdown",
     help="Output format.",
 )
@@ -96,7 +118,7 @@ def main() -> None:
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 @click.option(
@@ -105,15 +127,40 @@ def main() -> None:
     default="HIGH",
     help="Minimum severity to exit with code 1.",
 )
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path),
+    help="Write output to file.",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=0,
+    help="Number of parallel workers (0=auto).",
+)
+@click.option(
+    "--no-git-blame",
+    is_flag=True,
+    help="Disable git blame enrichment.",
+)
 def scan(
     target: str,
     fmt: str,
     rules_path: Path | None,
     exclude: tuple[str, ...],
     fail_on: str,
+    output_path: Path | None,
+    workers: int,
+    no_git_blame: bool,
 ) -> None:
-    """Scan TARGET file or directory for MCP security issues."""
+    """Scan TARGET file or directory for security issues."""
     min_level = SEVERITY_ORDER.index(fail_on)
+    config = _load_config(rules_path, target)
+    if workers > 0:
+        config.workers = workers
+    if no_git_blame:
+        config.use_git_blame = False
 
     with Progress(
         SpinnerColumn(),
@@ -122,11 +169,16 @@ def scan(
         transient=True,
     ) as progress:
         progress.add_task(description="Scanning...", total=None)
-        result = _run_scan(target, rules_path, exclude)
+        result = _run_scan(target, rules_path, exclude, config=config)
 
     reporter_cls = get_reporter(fmt)
     output = reporter_cls.generate(result)
-    console.print(output)
+
+    if output_path:
+        output_path.write_text(output, encoding="utf-8")
+        console.print(f"[green]Report saved to {output_path}[/green]")
+    else:
+        console.print(output)
 
     _print_summary(result)
 
@@ -140,13 +192,13 @@ def scan(
 @click.option(
     "--policy",
     type=click.Choice(list(POLICY_RULES.keys()), case_sensitive=False),
-    default="owasp-llm",
+    default="owasp-top10",
     help="Security policy to apply.",
 )
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "markdown", "sarif", "executive", "remediation"], case_sensitive=False),
+    type=click.Choice(list_formats(), case_sensitive=False),
     default="markdown",
     help="Output format.",
 )
@@ -159,7 +211,7 @@ def scan(
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 @click.option(
@@ -178,6 +230,7 @@ def policy_scan(
 ) -> None:
     """Scan TARGET using a named security policy."""
     min_level = SEVERITY_ORDER.index(fail_on)
+    config = _load_config(rules_path, target)
 
     with Progress(
         SpinnerColumn(),
@@ -186,7 +239,7 @@ def policy_scan(
         transient=True,
     ) as progress:
         progress.add_task(description=f"Running policy scan ({policy})...", total=None)
-        result = _run_scan(target, rules_path, exclude, policy=policy)
+        result = _run_scan(target, rules_path, exclude, policy=policy, config=config)
 
     reporter_cls = get_reporter(fmt)
     output = reporter_cls.generate(result)
@@ -204,11 +257,13 @@ def policy_scan(
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 def deps(target: str, exclude: tuple[str, ...]) -> None:
     """Scan TARGET for dependency vulnerabilities."""
+    from grooveguard.deps import DependencyScanner
+
     path = normalize_path(target)
     dep_files = list(path.rglob("requirements.txt")) + list(path.rglob("package.json"))
 
@@ -220,7 +275,6 @@ def deps(target: str, exclude: tuple[str, ...]) -> None:
     for df in dep_files:
         ftype = "pip" if df.name == "requirements.txt" else "npm"
         table.add_row(str(df), ftype)
-        # Simple heuristic: flag http:// or pinned versions without hashes
         content = df.read_text(encoding="utf-8", errors="ignore")
         for lineno, line in enumerate(content.splitlines(), start=1):
             if line.strip().startswith("http://"):
@@ -262,7 +316,7 @@ def deps(target: str, exclude: tuple[str, ...]) -> None:
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 def manifest(target: str, exclude: tuple[str, ...]) -> None:
@@ -298,7 +352,7 @@ def manifest(target: str, exclude: tuple[str, ...]) -> None:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "markdown", "sarif", "executive", "remediation"], case_sensitive=False),
+    type=click.Choice(list_formats(), case_sensitive=False),
     default="markdown",
     help="Output format.",
 )
@@ -311,7 +365,7 @@ def manifest(target: str, exclude: tuple[str, ...]) -> None:
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 @click.option(
@@ -320,15 +374,23 @@ def manifest(target: str, exclude: tuple[str, ...]) -> None:
     default="HIGH",
     help="Minimum severity to exit with code 1.",
 )
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path),
+    help="Write output to file.",
+)
 def full_scan(
     target: str,
     fmt: str,
     rules_path: Path | None,
     exclude: tuple[str, ...],
     fail_on: str,
+    output_path: Path | None,
 ) -> None:
     """Run all scanners (code, deps, manifest) on TARGET."""
     min_level = SEVERITY_ORDER.index(fail_on)
+    config = _load_config(rules_path, target)
 
     with Progress(
         SpinnerColumn(),
@@ -337,11 +399,15 @@ def full_scan(
         transient=True,
     ) as progress:
         progress.add_task(description="Running full scan...", total=None)
-        result = _run_scan(target, rules_path, exclude)
+        result = _run_scan(target, rules_path, exclude, config=config)
 
     reporter_cls = get_reporter(fmt)
     output = reporter_cls.generate(result)
-    console.print(output)
+
+    if output_path:
+        output_path.write_text(output, encoding="utf-8")
+    else:
+        console.print(output)
 
     _print_summary(result, title="Full Scan Summary")
 
@@ -367,7 +433,7 @@ def full_scan(
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 def watch(
@@ -408,7 +474,7 @@ def watch(
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 def baseline(
@@ -418,6 +484,8 @@ def baseline(
     exclude: tuple[str, ...],
 ) -> None:
     """Generate a baseline scan for TARGET."""
+    config = _load_config(rules_path, target)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -425,10 +493,10 @@ def baseline(
         transient=True,
     ) as progress:
         progress.add_task(description="Generating baseline...", total=None)
-        result = _run_scan(target, rules_path, exclude)
+        result = _run_scan(target, rules_path, exclude, config=config)
 
     data = {
-        "version": "0.2.0",
+        "version": "1.0.0",
         "files_scanned": result.files_scanned,
         "findings": [f.to_dict() for f in result.findings],
     }
@@ -455,7 +523,7 @@ def baseline(
 @click.option(
     "--exclude",
     multiple=True,
-    default=["*/.git/*", "*/__pycache__/*", "*/venv/*", "*/tests/*", "*/test_*.py"],
+    default=[],
     help="Glob patterns to exclude.",
 )
 def diff(
@@ -465,6 +533,8 @@ def diff(
     exclude: tuple[str, ...],
 ) -> None:
     """Compare current scan of TARGET against a baseline."""
+    config = _load_config(rules_path, target)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -472,7 +542,7 @@ def diff(
         transient=True,
     ) as progress:
         progress.add_task(description="Running diff scan...", total=None)
-        result = _run_scan(target, rules_path, exclude)
+        result = _run_scan(target, rules_path, exclude, config=config)
 
     baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
     baseline_findings = {json.dumps(f, sort_keys=True) for f in baseline_data.get("findings", [])}
@@ -506,11 +576,68 @@ def list_rules() -> None:
     table.add_column("ID", style="cyan")
     table.add_column("Title", style="magenta")
     table.add_column("Severity", style="red")
+    table.add_column("CWE", style="yellow")
 
     for rule in rules:
-        table.add_row(rule.rule_id, rule.title, rule.severity)
+        cwe = f"{rule.cwe_id} ({rule.cwe_name})" if rule.cwe_id else "—"
+        table.add_row(rule.rule_id, rule.title, rule.severity, cwe)
 
     console.print(table)
+
+
+@main.command()
+@click.argument("target", type=str, default=".")
+def init(target: str) -> None:
+    """Initialize a GrooveGuard configuration file in TARGET."""
+    path = Path(target) / ".grooveguard.yml"
+    if path.exists():
+        console.print(f"[yellow]{path} already exists.[/yellow]")
+        return
+
+    default_config = """# GrooveGuard Configuration
+# Documentation: https://github.com/GrooveXlabs/grooveguard
+
+# Target directory or file to scan
+target: "."
+
+# Glob patterns to exclude from scanning
+exclude:
+  - "*/.git/*"
+  - "*/__pycache__/*"
+  - "*/venv/*"
+  - "*/.venv/*"
+  - "*/node_modules/*"
+  - "*/tests/*"
+  - "*/test_*.py"
+
+# Minimum severity to report
+min_severity: "LOW"
+
+# Minimum severity to fail CI (exit code 1)
+fail_on: "HIGH"
+
+# Output format: markdown, json, sarif, html, executive, remediation
+format: "markdown"
+
+# Number of parallel workers (0 = auto)
+workers: 0
+
+# Enable git blame enrichment
+use_git_blame: true
+
+# Secret scanning options
+secret_min_entropy: 4.5
+
+# Per-rule configuration
+rules:
+  SEC-004:
+    enabled: true
+    severity: "MEDIUM"
+  DNG-010:
+    enabled: true
+"""
+    path.write_text(default_config, encoding="utf-8")
+    console.print(f"[green]Created {path}[/green]")
 
 
 if __name__ == "__main__":

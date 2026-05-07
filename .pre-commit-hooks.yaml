@@ -1,0 +1,8 @@
+- id: grooveguard
+  name: GrooveGuard Security Scan
+  description: Scan Python code for security vulnerabilities with GrooveGuard
+  entry: grooveguard scan
+  language: python
+  types: [python]
+  pass_filenames: false
+  args: ["."]

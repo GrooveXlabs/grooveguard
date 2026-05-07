@@ -82,7 +82,7 @@ class TestSARIFReporter:
         assert SARIFReporter._severity_to_level("HIGH") == "error"
         assert SARIFReporter._severity_to_level("MEDIUM") == "warning"
         assert SARIFReporter._severity_to_level("LOW") == "note"
-        assert SARIFReporter._severity_to_level("INFO") == "note"
+        assert SARIFReporter._severity_to_level("INFO") == "none"
 
 
 class TestExecutiveReporter:

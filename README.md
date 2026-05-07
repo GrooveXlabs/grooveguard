@@ -1,148 +1,271 @@
-# GrooveGuard 🔒
+# 🔒 GrooveGuard Enterprise
 
-> **MCP Server Security Scanner** — Audit Model Context Protocol servers for secrets, dangerous tools, SSRF, and input validation gaps.
+> **Enterprise-grade Python SAST with AST analysis, CWE mapping, secret detection, and CI/CD integration.**
 
-[![CI](https://img.shields.io/badge/tests-23%2F23%20passing-brightgreen)](https://github.com/GrooveXlabs/grooveguard/actions)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Tests](https://github.com/GrooveXlabs/grooveguard/actions/workflows/test.yml/badge.svg)](https://github.com/GrooveXlabs/grooveguard/actions)
+[![Security Scan](https://github.com/GrooveXlabs/grooveguard/actions/workflows/security-scan.yml/badge.svg)](https://github.com/GrooveXlabs/grooveguard/actions)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
 
 ## What is GrooveGuard?
 
-[MCP (Model Context Protocol)](https://modelcontextprotocol.io) is exploding — Anthropic, OpenAI, and Microsoft are all pushing it. But **no one is scanning MCP servers for security vulnerabilities**.
+GrooveGuard is a **production-ready static application security testing (SAST) tool** for Python. It analyzes your code using the Python AST (Abstract Syntax Tree) to detect vulnerabilities without executing code.
 
-GrooveGuard fills that gap. It's a lightweight CLI tool that audits MCP server implementations in seconds.
+### Why GrooveGuard over alternatives?
 
-## Features
+| Feature | GrooveGuard | Bandit | Semgrep |
+|---|---|---|---|
+| AST-based analysis | ✅ | ✅ | ✅ |
+| **30+ built-in rules** | ✅ 30+ | ~70 | 2,500+ |
+| **CWE/OWASP mapping** | ✅ Every rule | Partial | Partial |
+| **Entropy-based secrets** | ✅ | ❌ | ✅ |
+| **Git blame enrichment** | ✅ | ❌ | ❌ |
+| **Multiprocessing** | ✅ | ❌ | ✅ |
+| **SARIF 2.1.0 output** | ✅ + fingerprints | Basic | ✅ |
+| **HTML dashboard** | ✅ | ❌ | ❌ |
+| **Config file support** | ✅ `.grooveguard.yml` | ✅ | ✅ |
+| **Pre-commit hook** | ✅ | ✅ | ✅ |
+| **Policy engine** | ✅ OWASP/NIST | ❌ | ❌ |
+| **Dependency scanning** | ✅ pip-audit | ❌ | ❌ |
+| **Manifest scanning** | ✅ MCP/JSON | ❌ | ❌ |
 
-| Capability | Description |
-|-----------|-------------|
-| 🔑 **Secret Detection** | Finds hardcoded API keys, tokens, passwords |
-| ⚠️ **Dangerous Tools** | Flags tools that execute shell commands or write files |
-| 🌐 **SSRF Detection** | Identifies unvalidated URL fetching in tool handlers |
-| ✅ **Input Validation** | Checks if tool inputs are validated before use |
-| 📊 **3 Output Formats** | JSON, Markdown, SARIF (for GitHub Code Scanning) |
-| 🔧 **Extensible Rules** | YAML-based rules you can customize |
-| 🚀 **CI/CD Ready** | Exit code 1 if CRITICAL/HIGH findings exist |
+---
+
+## Installation
+
+```bash
+pip install grooveguard
+```
+
+For development:
+```bash
+pip install -e ".[dev]"
+```
+
+---
 
 ## Quick Start
 
-```bash
-# Install
-pip install grooveguard
-
-# Scan an MCP server
-grooveguard scan ./my-mcp-server
-
-# SARIF output for GitHub Code Scanning
-grooveguard scan --format sarif ./my-mcp-server > report.sarif
-
-# Custom rules
-grooveguard scan --rules custom-rules.yaml ./my-mcp-server
-
-# List built-in rules
-grooveguard list-rules
-```
-
-## Example Output
+### 1. Scan your project
 
 ```bash
-$ grooveguard scan ./sample-server
-
-🔒 GrooveGuard Security Report
-═══════════════════════════════════════
-
-CRITICAL: Hardcoded API key detected
-  File: server.py:15
-  Match: api_key = "sk-abc123..."
-  Rule: secrets.hardcoded_api_key
-
-HIGH: Unvalidated URL fetch
-  File: server.py:42
-  Tool: fetch_url
-  Rule: ssrf.unvalidated_fetch
-
-HIGH: os.system called in tool handler
-  File: server.py:58
-  Tool: run_command
-  Rule: dangerous.shell_execution
-
-Summary: 3 findings (1 CRITICAL, 2 HIGH)
+grooveguard scan .
 ```
+
+### 2. Generate an HTML report
+
+```bash
+grooveguard scan . --format html --output report.html
+```
+
+### 3. Export SARIF for GitHub Security tab
+
+```bash
+grooveguard scan . --format sarif --output results.sarif
+```
+
+### 4. Run with a security policy
+
+```bash
+grooveguard policy-scan . --policy owasp-top10 --fail-on HIGH
+```
+
+### 5. Initialize configuration
+
+```bash
+grooveguard init
+```
+
+This creates `.grooveguard.yml` in your project:
+
+```yaml
+target: "."
+exclude:
+  - "*/.git/*"
+  - "*/__pycache__/*"
+  - "*/venv/*"
+min_severity: "LOW"
+fail_on: "HIGH"
+format: "markdown"
+workers: 0
+use_git_blame: true
+secret_min_entropy: 4.5
+
+rules:
+  SEC-004:
+    enabled: true
+    severity: "MEDIUM"
+```
+
+---
 
 ## Rule Categories
 
-### Secrets (`rules/secrets.py`)
-- Hardcoded API keys (`sk-...`, `ghp_...`)
-- Password assignments
-- Secret tokens in strings
+| Category | Rule IDs | Coverage |
+|---|---|---|
+| **Secrets** | SEC-001 → SEC-008 | API keys, tokens, passwords, JWT secrets, DB URIs, private keys, Bearer tokens, entropy detection |
+| **Dangerous Operations** | DNG-001 → DNG-010 | Shell exec, file writes, path traversal, pickle, YAML, marshal, temp files, asserts, debug mode |
+| **Injection** | INJ-001 → INJ-004 | SQL injection, XSS, command injection, eval/exec |
+| **Network** | NET-001, NET-003, NET-004 | SSL verification, CORS wildcards, hardcoded IPs |
+| **Cryptography** | CRY-001 → CRY-003 | Weak hashes (MD5/SHA1), weak crypto (DES), insecure random |
+| **Validation** | VAL-001, VAL-002 | Missing input validation, unsafe type conversion |
+| **XML** | XML-001 | XXE (external entity expansion) |
+| **Logging** | LOG-001 | Sensitive data in logs |
+| **Manifest** | MANIFEST-001 → MANIFEST-008 | MCP/JSON config security |
 
-### Dangerous Capabilities (`rules/dangerous.py`)
-- `os.system`, `subprocess.run` in tool handlers
-- File write operations (`open(..., 'w')`)
-- `eval()` usage
-- Dangerous tool names (`run_command`, `exec_code`)
+Every rule maps to:
+- **CWE ID** (Common Weakness Enumeration)
+- **OWASP Top 10** (2021)
+- **Remediation guidance**
 
-### Input Validation (`rules/validation.py`)
-- Missing type hints on tool parameters
-- No input sanitization before operations
-- Direct parameter passthrough to dangerous functions
+---
 
-### SSRF (`rules/ssrf.py`)
-- `requests.get()` with user-controlled URLs
-- `urllib` fetches without allowlists
-- Missing URL validation before fetching
+## Output Formats
+
+| Format | Command | Use Case |
+|---|---|---|
+| `markdown` | `--format markdown` | Human-readable CLI output |
+| `json` | `--format json` | Machine parsing, CI integration |
+| `sarif` | `--format sarif` | GitHub Security tab, VS Code, Azure DevOps |
+| `html` | `--format html` | Shareable dashboard report |
+| `executive` | `--format executive` | CISO/board summaries |
+| `remediation` | `--format remediation` | Prioritized fix list |
+
+---
 
 ## CI/CD Integration
 
+### GitHub Actions
+
 ```yaml
-# .github/workflows/security.yml
-name: MCP Security Scan
-on: [push, pull_request]
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: pip install grooveguard
-      - run: grooveguard scan --format sarif . > report.sarif
-      - uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: report.sarif
+- uses: actions/checkout@v4
+- run: pip install grooveguard
+- run: grooveguard scan . --format sarif --output results.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: results.sarif
 ```
+
+Our repo includes a ready-to-use workflow: `.github/workflows/security-scan.yml`
+
+### Pre-commit Hook
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/GrooveXlabs/grooveguard
+    rev: v1.0.0
+    hooks:
+      - id: grooveguard
+```
+
+### GitLab CI
+
+```yaml
+security_scan:
+  image: python:3.12
+  script:
+    - pip install grooveguard
+    - grooveguard scan . --fail-on HIGH
+  artifacts:
+    reports:
+      sast: results.sarif
+```
+
+---
+
+## Policies
+
+Built-in compliance policies:
+
+| Policy | Standard | Rules |
+|---|---|---|
+| `owasp-top10` | OWASP Top 10 2021 | All injection, secrets, crypto, auth |
+| `owasp-llm` | OWASP Top 10 for LLM | Prompt injection, excessive agency |
+| `nist-ai` | NIST AI RMF | Governance, risk, monitoring |
+| `mcp-minimal` | MCP Server Baseline | Secrets + dangerous ops |
+
+```bash
+grooveguard policy-scan . --policy owasp-top10
+```
+
+---
+
+## Advanced Features
+
+### Baseline & Diff
+
+Track only **new** vulnerabilities introduced since your last scan:
+
+```bash
+grooveguard baseline . --output baseline.json
+grooveguard diff . --baseline baseline.json
+```
+
+### Watch Mode
+
+Continuous monitoring during development:
+
+```bash
+grooveguard watch . --interval 30
+```
+
+### Git Blame Enrichment
+
+Know **who introduced** each vulnerability and **when**:
+
+```bash
+grooveguard scan . --no-git-blame=false
+```
+
+---
 
 ## Architecture
 
 ```
-grooveguard/
-├── scanner.py          # AST-based Python code scanner
-├── rules/              # Security rule definitions
-│   ├── secrets.py
-│   ├── dangerous.py
-│   ├── validation.py
-│   └── ssrf.py
-├── reporters/          # Output formatters
-│   ├── json_reporter.py
-│   ├── markdown_reporter.py
-│   └── sarif_reporter.py
-└── cli.py              # Click CLI
+┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
+│   Python    │────▶│  AST Parser │────▶│  Rule Engine    │
+│   Source    │     │  (stdlib)   │     │  (30+ rules)    │
+└─────────────┘     └─────────────┘     └─────────────────┘
+                                                │
+                        ┌───────────────────────┼───────────┐
+                        ▼                       ▼           ▼
+                 ┌─────────────┐      ┌──────────────┐ ┌──────────┐
+                 │  CWE Mapper │      │  Reporters   │ │  Policy  │
+                 │  + Remediation     │  (6 formats) │ │  Engine  │
+                 └─────────────┘      └──────────────┘ └──────────┘
 ```
 
-## Security-First Design
-
-- **Read-only scanning** — Never modifies your code
-- **Safe defaults** — Only reads files, never executes
-- **No secrets in code** — GrooveGuard itself is clean
-- **False positive suppression** — `# grooveguard: ignore` comments
+---
 
 ## Development
 
 ```bash
-git clone https://github.com/GrooveXlabs/grooveguard.git
-cd grooveguard
-pip install -e ".[dev]"
+# Run tests
 pytest
+
+# Run with coverage
+pytest --cov=grooveguard --cov-report=term-missing
+
+# Lint
+ruff check .
+
+# Type check
+mypy grooveguard
 ```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## License
 
-MIT — Built with ❤️ by GrooveXlabs
+MIT © GrooveXlabs

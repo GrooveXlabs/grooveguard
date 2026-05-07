@@ -8,22 +8,83 @@ from typing import Any
 from grooveguard.scanner import Rule
 from grooveguard.utils import load_yaml_safe
 
-from .dangerous import DangerousToolRule, FileWriteRule, ShellExecRule
-from .secrets import ApiKeyRule, HardcodedPasswordRule, SecretTokenRule
+from .crypto import InsecureRandomRule, WeakCryptoRule, WeakHashRule
+from .dangerous import DangerousToolRule, FileWriteRule, PathTraversalRule, ShellExecRule
+from .injection import CommandInjectionRule, EvalExecRule, SqlInjectionRule, XssRule
+from .insecure_api import (
+    AssertStatementRule,
+    CorsWildcardRule,
+    DebugModeRule,
+    HardcodedIpRule,
+    LoggingSensitiveDataRule,
+    MarshalRule,
+    PickleRule,
+    SslVerificationDisabledRule,
+    TempFileRule,
+    XmlExternalEntityRule,
+    YamlLoadRule,
+)
+from .secrets import (
+    ApiKeyRule,
+    BearerTokenRule,
+    DatabaseUriRule,
+    HardcodedPasswordRule,
+    HighEntropyStringRule,
+    JwtSecretRule,
+    PrivateKeyRule,
+    SecretTokenRule,
+)
 from .ssrf import UnvalidatedUrlFetchRule
-from .validation import MissingValidationRule
+from .validation import MissingValidationRule, UnsafeTypeConversionRule
 
 __all__ = [
-    "ApiKeyRule",
-    "DangerousToolRule",
-    "FileWriteRule",
-    "HardcodedPasswordRule",
-    "MissingValidationRule",
-    "SecretTokenRule",
-    "ShellExecRule",
-    "UnvalidatedUrlFetchRule",
-    "load_rules_from_yaml",
     "build_rules",
+    "load_rules_from_yaml",
+    "ALL_RULE_CLASSES",
+]
+
+ALL_RULE_CLASSES: list[type[Rule]] = [
+    # Secrets (SEC-xxx)
+    ApiKeyRule,
+    SecretTokenRule,
+    HardcodedPasswordRule,
+    HighEntropyStringRule,
+    JwtSecretRule,
+    DatabaseUriRule,
+    PrivateKeyRule,
+    BearerTokenRule,
+    # Dangerous operations (DNG-xxx)
+    ShellExecRule,
+    FileWriteRule,
+    DangerousToolRule,
+    PathTraversalRule,
+    PickleRule,
+    YamlLoadRule,
+    MarshalRule,
+    TempFileRule,
+    AssertStatementRule,
+    DebugModeRule,
+    # Injection (INJ-xxx)
+    SqlInjectionRule,
+    XssRule,
+    CommandInjectionRule,
+    EvalExecRule,
+    # SSRF / Network (SSRF-xxx, NET-xxx)
+    UnvalidatedUrlFetchRule,
+    SslVerificationDisabledRule,
+    CorsWildcardRule,
+    HardcodedIpRule,
+    # Validation (VAL-xxx)
+    MissingValidationRule,
+    UnsafeTypeConversionRule,
+    # Crypto (CRY-xxx)
+    WeakHashRule,
+    WeakCryptoRule,
+    InsecureRandomRule,
+    # XML (XML-xxx)
+    XmlExternalEntityRule,
+    # Logging (LOG-xxx)
+    LoggingSensitiveDataRule,
 ]
 
 
@@ -44,25 +105,32 @@ def load_rules_from_yaml(path: Path) -> list[dict[str, Any]]:
     return []
 
 
-def build_rules(yaml_path: Path | None = None) -> list[Rule]:
+def build_rules(
+    yaml_path: Path | None = None,
+    config: Any | None = None,
+) -> list[Rule]:
     """Build the default rule set, optionally extended by YAML.
 
     Args:
         yaml_path: Optional custom YAML rule file.
+        config: Optional Config object for rule enable/disable/severity overrides.
 
     Returns:
         List of Rule instances.
     """
-    rules: list[Rule] = [
-        ApiKeyRule(),
-        SecretTokenRule(),
-        HardcodedPasswordRule(),
-        ShellExecRule(),
-        FileWriteRule(),
-        DangerousToolRule(),
-        MissingValidationRule(),
-        UnvalidatedUrlFetchRule(),
-    ]
+    from grooveguard.config import Config
+
+    rules: list[Rule] = []
+    cfg: Config | None = config if isinstance(config, Config) else None
+
+    for rule_cls in ALL_RULE_CLASSES:
+        rule = rule_cls()
+        # Apply config overrides
+        if cfg:
+            if not cfg.is_rule_enabled(rule.rule_id):
+                continue
+            rule.severity = cfg.get_rule_severity(rule.rule_id, rule.severity)
+        rules.append(rule)
 
     if yaml_path and yaml_path.exists():
         raw_rules = load_rules_from_yaml(yaml_path)

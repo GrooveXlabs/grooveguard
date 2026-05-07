@@ -4,24 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "grooveguard"
-version = "0.2.0"
-description = "MCP server security scanner"
+version = "1.0.0"
+description = "Enterprise Python security scanner with AST analysis, CWE mapping, and CI/CD integration"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "GrooveGuard Team"}
+    {name = "GrooveXlabs", email = "security@groovexlabs.com"}
 ]
-keywords = ["mcp", "security", "scanner", "audit", "ast"]
+keywords = [
+    "security", "scanner", "sast", "static-analysis", "python",
+    "cwe", "owasp", "ast", "secret-detection", "ci-cd"
+]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
     "click>=8.0",
@@ -36,15 +42,22 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.1.0",
+    "pre-commit>=3.0",
 ]
 
 [project.scripts]
 grooveguard = "grooveguard.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/GrooveXlabs/grooveguard"
+Documentation = "https://github.com/GrooveXlabs/grooveguard#readme"
+Repository = "https://github.com/GrooveXlabs/grooveguard.git"
+Issues = "https://github.com/GrooveXlabs/grooveguard/issues"
+
 [tool.pytest.ini_options]
 testpaths = ["grooveguard/tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --cov=grooveguard --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.10"
@@ -55,3 +68,7 @@ disallow_untyped_defs = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]

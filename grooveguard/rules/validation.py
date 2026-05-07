@@ -10,18 +10,16 @@ from grooveguard.scanner import Finding, Rule
 
 
 class MissingValidationRule(Rule):
-    """Check if tool functions directly use parameters without validation.
-
-    Heuristic: If a parameter is used in a dangerous call (e.g., open, requests.get)
-    and there is no isinstance() or length/type check before that call, flag it.
-    """
+    """Check if tool functions directly use parameters without validation."""
 
     rule_id = "VAL-001"
     title = "Missing Input Validation"
     severity = "HIGH"
+    cwe_id = "CWE-20"
+    cwe_name = "Improper Input Validation"
+    owasp = "A03:2021"
+    remediation = "Validate all inputs against strict schemas. Reject unexpected data types and values."
 
-    # Dangerous operations that should not receive raw user input.
-    # Note: "get"/"post" HTTP methods are handled by SSRF-001.
     _DANGEROUS_ATTRS = {"open", "write", "run", "call", "Popen", "system", "eval", "exec"}
 
     def check(self, tree: ast.AST, source_lines: list[str], path: Path) -> Iterator[Finding]:
@@ -47,20 +45,13 @@ class MissingValidationRule(Rule):
                                         if line <= len(source_lines)
                                         else ""
                                     )
-                                    yield Finding(
-                                        rule_id=self.rule_id,
-                                        title=self.title,
-                                        severity=self.severity,
-                                        message=f"Parameter '{arg.id}' used in dangerous call without validation.",
-                                        file=path,
-                                        line=line,
-                                        column=col,
-                                        snippet=snippet,
+                                    yield self.make_finding(
+                                        f"Parameter '{arg.id}' used in dangerous call without validation.",
+                                        path, line, col, snippet,
                                     )
                                     break
 
     def _find_validated_params(self, func: ast.FunctionDef) -> set[str]:
-        """Find parameters that appear in isinstance checks or explicit validation."""
         validated: set[str] = set()
         for stmt in ast.walk(func):
             if isinstance(stmt, ast.Call):
@@ -80,3 +71,28 @@ class MissingValidationRule(Rule):
         if isinstance(call.func, ast.Name):
             return call.func.id in self._DANGEROUS_ATTRS
         return False
+
+
+class UnsafeTypeConversionRule(Rule):
+    """Detect unsafe type conversions that may crash or leak info."""
+
+    rule_id = "VAL-002"
+    title = "Unsafe Type Conversion"
+    severity = "LOW"
+    cwe_id = "CWE-681"
+    cwe_name = "Incorrect Conversion between Numeric Types"
+    owasp = "A03:2021"
+    remediation = "Validate input before type conversion. Use try/except and provide meaningful error messages."
+
+    def check(self, tree: ast.AST, source_lines: list[str], path: Path) -> Iterator[Finding]:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id in {"int", "float", "bool"}:
+                    if node.args and isinstance(node.args[0], ast.Name):
+                        line = getattr(node, "lineno", 1)
+                        col = getattr(node, "col_offset", 0)
+                        snippet = source_lines[line - 1].strip() if line <= len(source_lines) else ""
+                        yield self.make_finding(
+                            f"Unsafe conversion of variable to {node.func.id} without validation.",
+                            path, line, col, snippet,
+                        )

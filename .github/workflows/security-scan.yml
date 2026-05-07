@@ -1,0 +1,56 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM
+
+jobs:
+  grooveguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for git blame
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GrooveGuard
+        run: pip install -e "."
+
+      - name: Run GrooveGuard Scan
+        run: |
+          grooveguard scan . \
+            --format sarif \
+            --output grooveguard-results.sarif \
+            --fail-on HIGH
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: grooveguard-results.sarif
+          category: grooveguard
+
+      - name: Generate HTML Report
+        if: always()
+        run: |
+          grooveguard scan . \
+            --format html \
+            --output grooveguard-report.html \
+            --fail-on HIGH
+        continue-on-error: true
+
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grooveguard-security-report
+          path: grooveguard-report.html
